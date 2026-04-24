@@ -16,7 +16,7 @@ const https = require("https");
 
 const CONFIG = {
   BASE_URL: "https://devapigw.vidalhealthtpa.com/srm-quiz-task",
-  REG_NO: "2024CS101",          // ← replace with your registration number
+  REG_NO: "RA2311033010039",    // ← replace with your registration number
   TOTAL_POLLS: 10,              // polls 0 – 9
   POLL_DELAY_MS: 5000,          // mandatory 5-second gap
 };
