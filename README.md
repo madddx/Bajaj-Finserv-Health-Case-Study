@@ -122,7 +122,7 @@ quiz-leaderboard/
 
 ### 1. Clone the repo
 ```bash
-git clone https://github.com/your-username/quiz-leaderboard.git
+git clone https://github.com/madddx/Bajaj-Finserv-Health-Case-Study.git
 cd quiz-leaderboard
 ```
 
@@ -132,7 +132,7 @@ Open `src/index.js` and update `CONFIG.REG_NO`:
 ```javascript
 const CONFIG = {
   BASE_URL: "https://devapigw.vidalhealthtpa.com/srm-quiz-task",
-  REG_NO: "2024CS101",   // ← replace with YOUR registration number
+  REG_NO: "RA2311033010039",   // ← replace with YOUR registration number
   TOTAL_POLLS: 10,
   POLL_DELAY_MS: 5000,   // mandatory 5-second delay between polls
 };
