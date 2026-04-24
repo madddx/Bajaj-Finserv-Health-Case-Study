@@ -1,0 +1,22 @@
+{
+  "name": "quiz-leaderboard-system",
+  "version": "1.0.0",
+  "description": "Internship assignment – Quiz Leaderboard with deduplication and API integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node tests/unit.test.js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "keywords": [
+    "leaderboard",
+    "quiz",
+    "deduplication",
+    "api-polling"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {}
+}
