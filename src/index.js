@@ -1,229 +1,169 @@
 /**
- * Quiz Leaderboard System
- * Internship Assignment – Bajaj Finserv Health / SRM
+ * Unit Tests – Quiz Leaderboard System
+ * Run: node tests/unit.test.js
  *
- * Flow:
- *  1. Poll /quiz/messages 10 times (poll = 0..9) with 5 s delay between each.
- *  2. Deduplicate events using composite key  →  roundId + "|" + participant
- *  3. Aggregate totalScore per participant.
- *  4. Sort leaderboard by totalScore (descending).
- *  5. POST /quiz/submit exactly once.
+ * Tests core logic WITHOUT making any real HTTP calls.
  */
 
-const https = require("https");
+// ─── Re-implement the pure functions inline so we can test them in isolation ──
 
-// ─── Configuration ──────────────────────────────────────────────────────────
-
-const CONFIG = {
-  BASE_URL: "https://devapigw.vidalhealthtpa.com/srm-quiz-task",
-  REG_NO: "RA2311033010039",    // ← replace with your registration number
-  TOTAL_POLLS: 10,              // polls 0 – 9
-  POLL_DELAY_MS: 5000,          // mandatory 5-second gap
-};
-
-// ─── Tiny HTTP helpers ───────────────────────────────────────────────────────
-
-function httpsGet(url) {
-  return new Promise((resolve, reject) => {
-    https.get(url, (res) => {
-      let body = "";
-      res.on("data", (chunk) => (body += chunk));
-      res.on("end", () => {
-        try {
-          resolve({ status: res.statusCode, data: JSON.parse(body) });
-        } catch (e) {
-          reject(new Error(`JSON parse error: ${e.message}\nBody: ${body}`));
-        }
-      });
-    }).on("error", reject);
-  });
-}
-
-function httpsPost(url, payload) {
-  const bodyStr = JSON.stringify(payload);
-  const { hostname, pathname } = new URL(url);
-
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        hostname,
-        path: pathname,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Content-Length": Buffer.byteLength(bodyStr),
-        },
-      },
-      (res) => {
-        let body = "";
-        res.on("data", (chunk) => (body += chunk));
-        res.on("end", () => {
-          try {
-            resolve({ status: res.statusCode, data: JSON.parse(body) });
-          } catch (e) {
-            reject(new Error(`JSON parse error: ${e.message}\nBody: ${body}`));
-          }
-        });
-      }
-    );
-    req.on("error", reject);
-    req.write(bodyStr);
-    req.end();
-  });
-}
-
-// ─── Utility ─────────────────────────────────────────────────────────────────
-
-const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
-
-function log(msg) {
-  const ts = new Date().toISOString();
-  console.log(`[${ts}] ${msg}`);
-}
-
-// ─── Core Logic ──────────────────────────────────────────────────────────────
-
-/**
- * Step 1 – Poll the API 10 times and collect all raw events.
- * Returns: Array of all event objects received (may contain duplicates).
- */
-async function pollAll() {
-  const allEvents = [];
-
-  for (let poll = 0; poll < CONFIG.TOTAL_POLLS; poll++) {
-    const url = `${CONFIG.BASE_URL}/quiz/messages?regNo=${CONFIG.REG_NO}&poll=${poll}`;
-    log(`→ Polling ${poll}/${CONFIG.TOTAL_POLLS - 1}  GET ${url}`);
-
-    try {
-      const { status, data } = await httpsGet(url);
-      log(
-        `  ✓ Poll ${poll} responded [HTTP ${status}] – setId=${data.setId}, events=${data.events?.length ?? 0}`
-      );
-
-      if (Array.isArray(data.events)) {
-        allEvents.push(...data.events);
-      }
-    } catch (err) {
-      log(`  ✗ Poll ${poll} FAILED: ${err.message}`);
-    }
-
-    // Mandatory 5-second delay – skip after the last poll
-    if (poll < CONFIG.TOTAL_POLLS - 1) {
-      log(`  ⏱  Waiting ${CONFIG.POLL_DELAY_MS / 1000}s before next poll…`);
-      await sleep(CONFIG.POLL_DELAY_MS);
-    }
-  }
-
-  log(`\n📦 Total raw events collected (before dedup): ${allEvents.length}`);
-  return allEvents;
-}
-
-/**
- * Step 2 – Deduplicate events.
- * Key = roundId + "|" + participant  (unique per round per person)
- *
- * Step 3 – Aggregate totalScore per participant.
- * Returns: Map<participant, totalScore>
- */
 function deduplicateAndAggregate(rawEvents) {
-  const seen = new Set();           // composite keys already processed
-  const scores = new Map();         // participant → totalScore
-
-  let duplicates = 0;
+  const seen = new Set();
+  const scores = new Map();
 
   for (const event of rawEvents) {
     const { roundId, participant, score } = event;
     const key = `${roundId}|${participant}`;
-
-    if (seen.has(key)) {
-      duplicates++;
-      continue; // skip duplicate
-    }
-
+    if (seen.has(key)) continue;
     seen.add(key);
     scores.set(participant, (scores.get(participant) ?? 0) + score);
   }
-
-  log(`🔍 Unique events after dedup : ${seen.size}`);
-  log(`🗑️  Duplicate events discarded: ${duplicates}`);
-
   return scores;
 }
 
-/**
- * Step 4 – Build sorted leaderboard.
- * Returns: Array<{participant, totalScore}> sorted by totalScore DESC.
- */
 function buildLeaderboard(scores) {
-  const leaderboard = [...scores.entries()]
+  return [...scores.entries()]
     .map(([participant, totalScore]) => ({ participant, totalScore }))
     .sort((a, b) => b.totalScore - a.totalScore);
-
-  const grandTotal = leaderboard.reduce((sum, e) => sum + e.totalScore, 0);
-
-  log("\n🏆 Leaderboard:");
-  leaderboard.forEach((entry, i) => {
-    log(`   ${i + 1}. ${entry.participant.padEnd(20)} ${entry.totalScore}`);
-  });
-  log(`\n💯 Grand Total Score: ${grandTotal}`);
-
-  return { leaderboard, grandTotal };
 }
 
-/**
- * Step 5 – Submit the leaderboard once.
- */
-async function submitLeaderboard(leaderboard) {
-  const url = `${CONFIG.BASE_URL}/quiz/submit`;
-  const payload = { regNo: CONFIG.REG_NO, leaderboard };
+// ─── Test Runner ─────────────────────────────────────────────────────────────
 
-  log(`\n📤 Submitting leaderboard to ${url}`);
-  log(`   Payload: ${JSON.stringify(payload)}`);
+let passed = 0;
+let failed = 0;
 
-  const { status, data } = await httpsPost(url, payload);
-
-  log(`\n📬 Submission Response [HTTP ${status}]:`);
-  log(`   isCorrect     : ${data.isCorrect}`);
-  log(`   isIdempotent  : ${data.isIdempotent}`);
-  log(`   submittedTotal: ${data.submittedTotal}`);
-  log(`   expectedTotal : ${data.expectedTotal}`);
-  log(`   message       : ${data.message}`);
-
-  return data;
-}
-
-// ─── Entry Point ─────────────────────────────────────────────────────────────
-
-async function main() {
-  log("═══════════════════════════════════════════════════");
-  log("   Quiz Leaderboard System  –  Starting up        ");
-  log(`   Registration No : ${CONFIG.REG_NO}             `);
-  log(`   Total Polls     : ${CONFIG.TOTAL_POLLS}         `);
-  log(`   Poll Delay      : ${CONFIG.POLL_DELAY_MS / 1000}s`);
-  log("═══════════════════════════════════════════════════\n");
-
-  // 1. Poll
-  const rawEvents = await pollAll();
-
-  // 2 & 3. Deduplicate + Aggregate
-  const scores = deduplicateAndAggregate(rawEvents);
-
-  // 4. Leaderboard
-  const { leaderboard } = buildLeaderboard(scores);
-
-  // 5. Submit
-  const result = await submitLeaderboard(leaderboard);
-
-  if (result.isCorrect) {
-    log("\n✅ SUCCESS – Leaderboard accepted!");
+function assert(condition, testName) {
+  if (condition) {
+    console.log(`   PASS: ${testName}`);
+    passed++;
   } else {
-    log("\n❌ FAILED – Check deduplication logic.");
-    log(`   Expected ${result.expectedTotal}, got ${result.submittedTotal}`);
-    process.exit(1);
+    console.error(`   FAIL: ${testName}`);
+    failed++;
   }
 }
 
-main().catch((err) => {
-  console.error("\n💥 Unhandled error:", err);
-  process.exit(1);
-});
+function assertEqual(actual, expected, testName) {
+  if (JSON.stringify(actual) === JSON.stringify(expected)) {
+    console.log(`   PASS: ${testName}`);
+    passed++;
+  } else {
+    console.error(`   FAIL: ${testName}`);
+    console.error(`     Expected: ${JSON.stringify(expected)}`);
+    console.error(`     Actual  : ${JSON.stringify(actual)}`);
+    failed++;
+  }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+console.log("\n══════════════════════════════════════");
+console.log("  Quiz Leaderboard – Unit Test Suite  ");
+console.log("══════════════════════════════════════\n");
+
+// Test 1: No duplicates – simple aggregation
+console.log("Test 1: Simple aggregation without duplicates");
+{
+  const events = [
+    { roundId: "R1", participant: "Alice", score: 10 },
+    { roundId: "R1", participant: "Bob",   score: 20 },
+    { roundId: "R2", participant: "Alice", score: 15 },
+  ];
+  const scores = deduplicateAndAggregate(events);
+  assertEqual(scores.get("Alice"), 25, "Alice total = 25");
+  assertEqual(scores.get("Bob"),   20, "Bob total = 20");
+}
+
+// Test 2: Identical duplicate events should be ignored
+console.log("\nTest 2: Duplicate events are discarded");
+{
+  const events = [
+    { roundId: "R1", participant: "Alice", score: 10 },
+    { roundId: "R1", participant: "Alice", score: 10 }, // duplicate
+    { roundId: "R1", participant: "Alice", score: 10 }, // duplicate
+    { roundId: "R1", participant: "Bob",   score: 20 },
+  ];
+  const scores = deduplicateAndAggregate(events);
+  assertEqual(scores.get("Alice"), 10, "Alice counted once = 10");
+  assertEqual(scores.get("Bob"),   20, "Bob = 20");
+}
+
+// Test 3: Same participant, different rounds → both counted
+console.log("\nTest 3: Same participant across different rounds");
+{
+  const events = [
+    { roundId: "R1", participant: "Carol", score: 30 },
+    { roundId: "R2", participant: "Carol", score: 30 },
+    { roundId: "R3", participant: "Carol", score: 30 },
+    { roundId: "R1", participant: "Carol", score: 30 }, // dup of R1
+  ];
+  const scores = deduplicateAndAggregate(events);
+  assertEqual(scores.get("Carol"), 90, "Carol = 90 (3 unique rounds × 30)");
+}
+
+// Test 4: Leaderboard sorted descending
+console.log("\nTest 4: Leaderboard sort order");
+{
+  const events = [
+    { roundId: "R1", participant: "Alice", score: 50 },
+    { roundId: "R1", participant: "Bob",   score: 80 },
+    { roundId: "R1", participant: "Carol", score: 65 },
+  ];
+  const scores = deduplicateAndAggregate(events);
+  const board  = buildLeaderboard(scores);
+  assertEqual(board[0].participant, "Bob",   "1st place = Bob");
+  assertEqual(board[1].participant, "Carol", "2nd place = Carol");
+  assertEqual(board[2].participant, "Alice", "3rd place = Alice");
+}
+
+// Test 5: Grand total calculation
+console.log("\nTest 5: Grand total across leaderboard");
+{
+  const events = [
+    { roundId: "R1", participant: "X", score: 100 },
+    { roundId: "R2", participant: "Y", score: 200 },
+    { roundId: "R1", participant: "X", score: 100 }, // dup
+  ];
+  const scores = deduplicateAndAggregate(events);
+  const board  = buildLeaderboard(scores);
+  const total  = board.reduce((s, e) => s + e.totalScore, 0);
+  assertEqual(total, 300, "Grand total = 300 (deduped)");
+}
+
+// Test 6: Empty events list
+console.log("\nTest 6: Empty events produce empty leaderboard");
+{
+  const scores = deduplicateAndAggregate([]);
+  const board  = buildLeaderboard(scores);
+  assertEqual(board.length, 0, "Empty leaderboard for no events");
+}
+
+// Test 7: Realistic multi-poll simulation (same data repeated across polls)
+console.log("\nTest 7: Multi-poll simulation with repeated data");
+{
+  const poll0 = [
+    { roundId: "R1", participant: "Alice", score: 10 },
+    { roundId: "R1", participant: "Bob",   score: 20 },
+  ];
+  const poll3 = [  // same as poll 0 – should be ignored
+    { roundId: "R1", participant: "Alice", score: 10 },
+    { roundId: "R1", participant: "Bob",   score: 20 },
+  ];
+  const poll5 = [
+    { roundId: "R2", participant: "Alice", score: 40 },
+  ];
+
+  const allRaw = [...poll0, ...poll3, ...poll5];
+  const scores = deduplicateAndAggregate(allRaw);
+  assertEqual(scores.get("Alice"), 50, "Alice = 10 + 40 (dup R1 discarded)");
+  assertEqual(scores.get("Bob"),   20, "Bob = 20 (dup discarded)");
+  const total = buildLeaderboard(scores).reduce((s, e) => s + e.totalScore, 0);
+  assertEqual(total, 70, "Grand total = 70");
+}
+
+// ─── Summary ─────────────────────────────────────────────────────────────────
+
+console.log("\n──────────────────────────────────────");
+console.log(`  Results: ${passed} passed, ${failed} failed`);
+console.log("──────────────────────────────────────\n");
+
+if (failed > 0) process.exit(1);
